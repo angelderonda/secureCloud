@@ -1,5 +1,9 @@
 from Encryptor import Encryptor
 import os
+import requests
+
+# URL 
+base_url = 'http://localhost:5000'
 
 def ceildiv(a,b):
     return -(a // -b)
