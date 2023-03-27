@@ -1,9 +1,35 @@
 from AeEncryptor import AeEncryptor
 from AeadEncryptor import AeadEncryptor
-import os
+import os, boto3, json
 from FileManager import FileManager
 
-key = os.urandom(32)
+# We read de credentials file
+with open('credentials.json') as cred_file:
+    cred = json.load(cred_file)
+
+
+
+# Create the kms client
+
+session = boto3.Session(
+    aws_access_key_id=cred['ACCESS_KEY_ID'],
+    aws_secret_access_key=cred['SECRET_ACCESS_KEY'],
+    region_name=cred['REGION_NAME']
+)
+kms_client = session.client('kms')
+
+
+# Generate new key
+response = kms_client.generate_data_key(
+    KeyId=cred['KEY_ID'],
+    KeySpec='AES_256'
+)
+print("LA CLAVE ES: ")
+print(response['Plaintext'])
+print("------------------------")
+
+
+key = response['Plaintext']
 enc_ae = AeEncryptor(key,'aes-256','sha-256')
 enc_aead = AeadEncryptor(key,'chacha')
 

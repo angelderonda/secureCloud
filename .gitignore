@@ -1,5 +1,5 @@
 .DS_Store
-.env
+./env
 .flaskenv
 *.pyc
 *.pyo
@@ -17,5 +17,7 @@ build/
 .idea/
 docs/_build/
 .vscode
+credentials.json
+securecloud_accessKeys.csv
 
 instance/

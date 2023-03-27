@@ -1,19 +1,36 @@
-# pyfiledrop
+## INSTALLATION ⚙️
 
-This is a minimal script to have a file dropper website.
-
-It uses a minimal web interface or can use an external "index.html" file.
-
-This requires Python 3.6+ 
-
-Install requirements 
-
-```shell
+In Windows:
+```
+python -m venv env
+.\env\Scripts\activate.bat      #Command prompt
+.\env\Scripts\Activate.ps1      #Powershell
 pip install -r requirements.txt
 ```
 
-Run the script 
-
-```shell
-python pyfiledrop.py
+In Linux:
 ```
+python -m venv env
+./env/Scripts/activate
+pip install -r requirements.txt (dont worry about the errors)
+```
+
+REVISAR DONDE METER EL CREDENTIALS.JSON EN LA VERSIÓN FINAL
+
+Then, you must create a `credentials.json` file in the root directory like this: 
+
+```
+{
+  "ACCESS_KEY_ID": "YOUR_ACCESS_KEY_ID",
+  "SECRET_ACCESS_KEY": "YOUR_SECRET_ACCESS_KEY",
+  "REGION_NAME": "YOUR_AWS_REGION",
+  "KEY_ID":"YOUR_KMS_KEY"
+}
+
+
+```
+
+Remember that we are using AMS KMS so you will need to create an AWS account.
+
+
+## PLATFORM 🌐
