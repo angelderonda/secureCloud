@@ -4,8 +4,10 @@ from collections import defaultdict
 import shutil
 import argparse
 import uuid
+from cheroot.wsgi import Server as WSGIServer
+from cheroot.ssl.builtin import BuiltinSSLAdapter
 
-from bottle import route, run, request, error, response, HTTPError, static_file
+from bottle import Bottle, route, run, request, error, response, HTTPError, static_file
 from werkzeug.utils import secure_filename
 
 storage_path: Path = Path(__file__).parent / "storage"
@@ -22,14 +24,17 @@ dropzone_force_chunking = "true"
 
 lock = Lock()
 chucks = defaultdict(list)
+app = Bottle()
 
-@error(500)
+
+@app.error(500)
 def handle_500(error_message):
     response.status = 500
     response.body = f"Error: {error_message}"
     return response
 
-@route("/")
+
+@app.route("/")
 def index():
     index_file = Path(__file__) / "index.html"
     if index_file.exists():
@@ -144,7 +149,8 @@ def index():
 </html>
     """
 
-@route("/upload", method="POST")
+
+@app.route("/upload", method="POST")
 def upload():
     file = request.files.get("file")
     if not file:
@@ -193,7 +199,7 @@ def upload():
     return "Chunk upload successful"
 
 
-@route("/download/<dz_uuid>")
+@app.route("/download/<dz_uuid>")
 def download(dz_uuid):
     if not allow_downloads:
         raise HTTPError(status=403)
@@ -205,8 +211,6 @@ def download(dz_uuid):
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("-p", "--port", type=int, default=5000, required=False)
-    parser.add_argument("--host", type=str, default="0.0.0.0", required=False)
     parser.add_argument("-s", "--storage", type=str,
                         default=str(storage_path), required=False)
     parser.add_argument("-c", "--chunks", type=str,
@@ -278,4 +282,9 @@ Storage Path: {storage_path.absolute()}
 Chunk Path: {chunk_path.absolute()}
 """
     )
-    run(server="paste", port=args.port, host=args.host)
+    server = WSGIServer(('localhost', 443), app)
+    server.ssl_adapter = BuiltinSSLAdapter(
+        certificate='adhoc.crt',
+        private_key='adhoc.key'
+    )
+    server.start()

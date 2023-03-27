@@ -19,5 +19,6 @@ docs/_build/
 .vscode
 credentials.json
 securecloud_accessKeys.csv
-
+*.crt
+*.key
 instance/
