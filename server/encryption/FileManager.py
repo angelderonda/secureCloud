@@ -54,3 +54,36 @@ class FileManager:
                 f.seek(0)
                 f.write(os.urandom(file_len))
         os.remove(filename)
+    # para subir un archivo al servidor    
+    def upload_file(filename, filedata):
+       url = base_url + 'upload'
+       files = {'file': (filename, filedata)}
+       response = requests.post(url, files=files)
+       return response.status_code == 200
+    # para descargar un archivo al servidor
+    def download_file(filename):
+        url = base_url + 'download/' + filename
+        response = requests.get(url)
+        if response.status_code == 200:
+            return response.content
+        else:
+            return None
+    #para listar un archivo al servidor    
+    def list_files():
+        url = base_url + 'list'
+        response = requests.get(url)
+        if response.status_code == 200:
+            return response.json()
+        else:
+            return None    
+     # para eliminar un archivo al servidor   
+    def delete_file(filename):
+        url = base_url + 'delete/' + filename
+        response = requests.delete(url)
+        if response.status_code == 200:
+            # Sobrescribe los datos del archivo con bytes nulos
+            data = bytearray(len(response.content))
+            response = requests.put(url, data=data)
+            return response.status_code == 200
+        else:
+            return False        
