@@ -1,3 +1,4 @@
 bottle
 paste
 werkzeug
+cryptography==39.0.1
