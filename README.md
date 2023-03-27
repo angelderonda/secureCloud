@@ -12,7 +12,7 @@ In Linux:
 ```
 python -m venv env
 ./env/Scripts/activate
-pip install -r requirements.txt (dont worry about the errors)
+pip install -r requirements.txt
 ```
 
 REVISAR DONDE METER EL CREDENTIALS.JSON EN LA VERSIÓN FINAL
