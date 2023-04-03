@@ -1,5 +1,5 @@
-from Encryptor import Encryptor
-from algorithms import hashes_algorithms, encryption_algorithms
+from encryption.Encryptor import Encryptor
+from encryption.algorithms import hashes_algorithms, encryption_algorithms
 import os
 from cryptography.hazmat.primitives.hmac import HMAC
 from cryptography.hazmat.primitives.ciphers import Cipher, modes

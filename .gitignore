@@ -22,3 +22,6 @@ securecloud_accessKeys.csv
 *.crt
 *.key
 instance/
+
+server/storage
+server/chunk

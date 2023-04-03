@@ -23,7 +23,7 @@ dropzone_parallel_chunks = "true"
 dropzone_force_chunking = "true"
 
 lock = Lock()
-chucks = defaultdict(list)
+chuncks = defaultdict(list)
 app = Bottle()
 
 
@@ -185,8 +185,8 @@ def upload():
 
     # See if we have all the chunks downloaded
     with lock:
-        chucks[dz_uuid].append(current_chunk)
-        completed = len(chucks[dz_uuid]) == total_chunks
+        chuncks[dz_uuid].append(current_chunk)
+        completed = len(chuncks[dz_uuid]) == total_chunks
 
     # Concat all the files into the final file when all are downloaded
     if completed:
@@ -203,6 +203,10 @@ def upload():
 def download(dz_uuid):
     if not allow_downloads:
         raise HTTPError(status=403)
+    
+    if not storage_path.exists():
+        storage_path.mkdir(exist_ok=True, parents=True)
+
     for file in storage_path.iterdir():
         if file.is_file() and file.name.startswith(dz_uuid):
             return static_file(file.name, root=file.parent.absolute(), download=True)

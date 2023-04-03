@@ -1,4 +1,4 @@
-from Encryptor import Encryptor
+from encryption.Encryptor import Encryptor
 import os
 import requests
 
