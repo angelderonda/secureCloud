@@ -10,6 +10,8 @@ from cheroot.ssl.builtin import BuiltinSSLAdapter
 from bottle import Bottle, route, run, request, error, response, HTTPError, static_file
 from werkzeug.utils import secure_filename
 
+from encryption.FileManager import FileManager
+
 storage_path: Path = Path(__file__).parent / "storage"
 chunk_path: Path = Path(__file__).parent / "chunk"
 
@@ -25,6 +27,7 @@ dropzone_force_chunking = "true"
 lock = Lock()
 chuncks = defaultdict(list)
 app = Bottle()
+fm = FileManager()
 
 
 @app.error(500)
@@ -150,6 +153,13 @@ def index():
     """
 
 
+def find_uploaded_file(dz_uuid):
+    for file in storage_path.iterdir():
+        if file.is_file() and file.name.startswith(dz_uuid):
+            return file
+    return None
+    
+
 @app.route("/upload", method="POST")
 def upload():
     file = request.files.get("file")
@@ -207,11 +217,18 @@ def download(dz_uuid):
     if not storage_path.exists():
         storage_path.mkdir(exist_ok=True, parents=True)
 
-    for file in storage_path.iterdir():
-        if file.is_file() and file.name.startswith(dz_uuid):
-            return static_file(file.name, root=file.parent.absolute(), download=True)
-    return HTTPError(status=404)
+    file = find_uploaded_file(dz_uuid)
+    return static_file(file.name, root=file.parent.absolute(), download=True) if file else HTTPError(status=404) 
 
+@app.route("/delete/<dz_uuid>", method="DELETE")
+def delete(dz_uuid):
+    print(f"Deleting file {dz_uuid}")
+    file = find_uploaded_file(dz_uuid)
+    if not file:
+        return HTTPError(status=404)
+    print(file.name)
+    fm.secure_erase(storage_path / file.name, 10)
+    return "Deleted file securely"
 
 def parse_args():
     parser = argparse.ArgumentParser()

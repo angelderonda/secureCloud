@@ -8,6 +8,7 @@ base_url = 'http://localhost:5000'
 def ceildiv(a,b):
     return -(a // -b)
 
+# Various utility functions for server-side-encryption
 class FileManager:
     def write(self, data: bytes, metadata: bytes, filename: str, encryptor: Encryptor):
         # split up data and run recursively if encryptor is an array
