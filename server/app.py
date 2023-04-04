@@ -28,7 +28,7 @@ lock = Lock()
 chuncks = defaultdict(list)
 app = Bottle()
 fm = FileManager()
-
+mode = "sse"
 
 @app.error(500)
 def handle_500(error_message):
@@ -39,9 +39,8 @@ def handle_500(error_message):
 
 @app.route("/")
 def index():
-    index_file = Path(__file__) / "index.html"
-    if index_file.exists():
-        return index_file.read_text()
+    if mode == "cse":
+        return ''
     return f"""
 <!doctype html>
 <html lang="en">
@@ -231,15 +230,18 @@ def delete(dz_uuid):
     return "Deleted file securely"
 
 @app.route("/list")
-def list():
+def list_files():
     files = []
     for file in storage_path.iterdir():
         if file.is_file():
-            files.add[file.name]
-    return files
+            files.append(file.name)
+    return "\n".join(files)
+
 
 def parse_args():
     parser = argparse.ArgumentParser()
+    parser.add_argument("-m", "--mode", type=str,
+                        default="sse", required=True)
     parser.add_argument("-s", "--storage", type=str,
                         default=str(storage_path), required=False)
     parser.add_argument("-c", "--chunks", type=str,
@@ -277,6 +279,7 @@ if __name__ == "__main__":
     dropzone_chunk_size = args.chunk_size
     dropzone_timeout = args.timeout
     dropzone_max_file_size = args.max_size
+    mode = args.mode
     try:
         if int(dropzone_timeout) < 1 or int(dropzone_chunk_size) < 1 or int(dropzone_max_file_size) < 1:
             raise Exception(
@@ -316,4 +319,8 @@ Chunk Path: {chunk_path.absolute()}
         certificate='adhoc.crt',
         private_key='adhoc.key'
     )
+    if mode == "sse":
+        print("Server started on https://localhost/")
+    else:
+        print("Server started and working with client side encryption. You do not need to do anything more here. Launch client.py with the desired mode")
     server.start()
