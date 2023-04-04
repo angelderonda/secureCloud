@@ -2,15 +2,38 @@ import requests
 from uuid import uuid4
 import argparse
 import sys
-import os
+import os, boto3
 from encryption.AeadEncryptor import AeadEncryptor
 from uuid import uuid4, UUID as TestUUID
 import json
 
+# We read de credentials file
+with open('credentials.json') as cred_file:
+    cred = json.load(cred_file)
+
+# Create the kms client
+
+session = boto3.Session(
+    aws_access_key_id=cred['ACCESS_KEY_ID'],
+    aws_secret_access_key=cred['SECRET_ACCESS_KEY'],
+    region_name=cred['REGION_NAME']
+)
+kms_client = session.client('kms')
+
 master_key = b'\xee\x9b\xb4F\xda\x16id\xc8\x82\xaf\xed~.\xb5\x19\x7f\r\x85\xd8\xa4\x0e{\xb6\xcf8\xb3M\x8b\xfd\x89z'
 
-master_encryptor = AeadEncryptor(master_key, 'chacha')
+master_encryptor = AeadEncryptor(master_key, 'chacha') # To cypher the 
 
+
+
+def generate_key():    
+    # Generate new key
+    response = kms_client.generate_data_key(
+        KeyId=cred['KEY_ID'],
+        KeySpec='AES_256'
+    )  
+
+    return response['Plaintext']
 
 def to_bytes(num):
     return int.to_bytes(num, 4, 'little')
@@ -27,8 +50,11 @@ def upload_cse(filename, metadata, host, output, verify):
     fileid = str(uuid4())
     print(f"Encrypting...")
 
+    dek_key = generate_key()
+    dek_encryptor = AeadEncryptor(dek_key,'chacha') # To cypher the files
+
     with open(filename, mode='rb') as f:
-        nonce, encrypted, signature = master_encryptor.encrypt(
+        nonce_dek, encrypted, signature_dek = dek_encryptor.encrypt(
             f.read(), metadata)
 
     print("Uploading...")
@@ -49,9 +75,16 @@ def upload_cse(filename, metadata, host, output, verify):
         print("Error uploading encrypted file. If you use self-signed TLS certificates, make sure to pass the -s option.")
         sys.exit(1)
 
+    key_nonce, key_encrypyted, key_signature = master_encryptor.encrypt(dek_key,b'')
+
     with open(output if output else filename + '.key', 'w+') as f:
-        f.write(json.dumps({'type': 'master', 'nonce': nonce.hex(),
-                'signature': signature.hex(), 'uuid': fileid}))
+        f.write(json.dumps({'nonce_dek': nonce_dek.hex(),
+                            'signature_dek': signature_dek.hex(),
+                            'nonce_key': key_nonce.hex(),
+                            'signature_key': key_signature.hex(),
+                            'key': key_encrypyted.hex(),
+                            'uuid': fileid}))        
+    
 
 
 def download_cse(keyfile, host, output, verify):
@@ -60,6 +93,9 @@ def download_cse(keyfile, host, output, verify):
         sys.exit(1)
     with open(keyfile) as f:
         keydata = json.loads(f.read())
+    dek_key = master_encryptor.decrypt(bytes.fromhex(keydata["key"]),b'',bytes.fromhex(keydata["nonce_key"]),bytes.fromhex(keydata["signature_key"]))
+    dek_encryptor = AeadEncryptor(dek_key,"chacha")
+
     try:
         result = requests.get(
             f'{host}/download/{keydata["uuid"]}', verify=verify)
@@ -76,8 +112,8 @@ def download_cse(keyfile, host, output, verify):
     metalen = fromBytes(result.content[:4])
     metadata = result.content[4:metalen]
     data = result.content[metalen + 8:]
-    plaintext = master_encryptor.decrypt(
-        data, metadata, bytes.fromhex(keydata["nonce"]), bytes.fromhex(keydata["signature"]))
+    plaintext = dek_encryptor.decrypt(
+        data, metadata, bytes.fromhex(keydata["nonce_dek"]), bytes.fromhex(keydata["signature_dek"]))
 
     print(f'Recieved file with metadata: {metadata.decode("utf-8")}')
 

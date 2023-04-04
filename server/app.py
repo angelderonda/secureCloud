@@ -230,6 +230,14 @@ def delete(dz_uuid):
     fm.secure_erase(storage_path / file.name, 10)
     return "Deleted file securely"
 
+@app.route("/list")
+def list():
+    files = []
+    for file in storage_path.iterdir():
+        if file.is_file():
+            files.add[file.name]
+    return files
+
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("-s", "--storage", type=str,
