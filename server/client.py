@@ -154,8 +154,7 @@ def list_files(host, verify):
             verify=verify,
         )
     print('Files:')
-    for line in result.text.splitlines():
-        print('\t· ' + line)
+    print(result.text)
 
 def download_cse(keyfile, host, output, verify):
     if not os.path.isfile:

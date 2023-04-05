@@ -6,10 +6,11 @@ import argparse
 import uuid
 from cheroot.wsgi import Server as WSGIServer
 from cheroot.ssl.builtin import BuiltinSSLAdapter
-
+import signal
 from bottle import Bottle, route, run, request, error, response, HTTPError, static_file
 from werkzeug.utils import secure_filename
-
+import os
+import json
 from encryption.FileManager import FileManager
 
 storage_path: Path = Path(__file__).parent / "storage"
@@ -28,7 +29,17 @@ lock = Lock()
 chuncks = defaultdict(list)
 app = Bottle()
 fm = FileManager()
-mode = "sse"
+
+def delete_files(signum, frame):
+    directory = storage_path
+    for filename in os.listdir(directory):
+        file_path = os.path.join(directory, filename)
+        try:
+            if os.path.isfile(file_path):
+                fm.secure_erase(file_path, 10)
+                print(f"Deleted file: {file_path}")
+        except Exception as e:
+            print(f"Error deleting file {file_path}: {e}")
 
 @app.error(500)
 def handle_500(error_message):
@@ -39,8 +50,6 @@ def handle_500(error_message):
 
 @app.route("/")
 def index():
-    if mode == "cse":
-        return ''
     return f"""
 <!doctype html>
 <html lang="en">
@@ -76,43 +85,35 @@ def index():
       <form method="POST" action="/upload" class="dropzone dz-clickable" id="dropper" enctype="multipart/form-data"></form>
 
       <h2>
-        <i class="fas fa-upload"></i> Uploaded
-        <button type="button" class="btn btn-outline-secondary" onclick="clearCookies()">
-          <i class="fas fa-times"></i> Clear
-        </button>
+        <i class="fas fa-upload"></i> Uploaded files
       </h2>
       <div id="uploaded"></div>
     </div>
 
         <script src="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/5.0.1/js/bootstrap.min.js"></script>
         <script type="application/javascript">
-            function clearCookies() {{
-                document.cookie = "files=; Max-Age=0";
-                document.getElementById("uploaded").innerHTML = "";
-            }}
 
-            function getFilesFromCookie() {{
-                try {{ return document.cookie.split("=", 2)[1].split("||");}} catch (error) {{ return []; }}
-            }}
-
-            function saveCookie(new_file) {{
-                    let all_files = getFilesFromCookie();
-                    all_files.push(new_file);
-                    document.cookie = `files=${{all_files.join("||")}}`;
-            }}
-
-            function generateLink(combo){{
-                const uuid = combo.split('|^^|')[0];
-                const name = combo.split('|^^|')[1];
+            function generateLink(name,uuid){{
                 if ({'true' if allow_downloads else 'false'}) {{
-                    return `<div><p style="display: inline-block;">${{name}}</p><a class="btn btn-primary" href="/download/${{uuid}}" download="${{name}}" style="display: inline-block; margin-left: 10px;"><i class="fas fa-file-download"></i></a></div>`;
+                    return `<div><p style="display: inline-block;">${{name}}</p><a class="btn btn-primary" href="/download/${{uuid}}" download="${{name}}" style="display: inline-block; margin-left: 10px;"><i class="fas fa-file-download"></i></a><a class="btn btn-danger" href="/delete/${{uuid}}" style="display: inline-block; margin-left: 10px;">
+                        <i class="fas fa-trash"></i>
+                    </a></div>`;
                 }}
                 return name;
             }}
 
 
             function init() {{
-
+                fetch("https://localhost/list").then(response => response.json()).then(files => {{
+                let content = "";
+                files.forEach(file => {{
+                if (!file.name.endsWith(".key")) {{
+                    content += generateLink(file.name,file.uuid) + "<br />";
+                }}
+                }});
+                document.getElementById("uploaded").innerHTML = content;
+                }}).catch(error => console.log(error));
+                
                 Dropzone.options.dropper = {{
                     paramName: 'file',
                     chunking: true,
@@ -125,9 +126,7 @@ def index():
                     chunkSize: {dropzone_chunk_size}, // bytes
                     init: function () {{
                         this.on("complete", function (file) {{
-                            let combo = `${{file.upload.uuid}}|^^|${{file.upload.filename}}`;
-                            saveCookie(combo);
-                            document.getElementById("uploaded").innerHTML += generateLink(combo)  + "<br />";
+                            document.getElementById("uploaded").innerHTML += generateLink(file.name,file.upload.uuid)  + "<br/>";
                         }});
                     }}
                 }}
@@ -143,7 +142,6 @@ def index():
             }}
 
             init();
-            clearCookies();
 
         </script>
     </div>
@@ -234,14 +232,18 @@ def list_files():
     files = []
     for file in storage_path.iterdir():
         if file.is_file():
-            files.append(file.name)
-    return "\n".join(files)
-
+            files.append(
+                {
+                    "name": file.name[37:],
+                    "uuid": file.name[:36],
+                    "size": file.stat().st_size,
+                }
+            )
+    response.content_type = "application/json"
+    return json.dumps(files)
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("-m", "--mode", type=str,
-                        default="sse", required=True)
     parser.add_argument("-s", "--storage", type=str,
                         default=str(storage_path), required=False)
     parser.add_argument("-c", "--chunks", type=str,
@@ -279,7 +281,6 @@ if __name__ == "__main__":
     dropzone_chunk_size = args.chunk_size
     dropzone_timeout = args.timeout
     dropzone_max_file_size = args.max_size
-    mode = args.mode
     try:
         if int(dropzone_timeout) < 1 or int(dropzone_chunk_size) < 1 or int(dropzone_max_file_size) < 1:
             raise Exception(
@@ -319,8 +320,7 @@ Chunk Path: {chunk_path.absolute()}
         certificate='adhoc.crt',
         private_key='adhoc.key'
     )
-    if mode == "sse":
-        print("Server started on https://localhost/")
-    else:
-        print("Server started and working with client side encryption. You do not need to do anything more here. Launch client.py with the desired mode")
+    print("Server started and working with client side encryption. You do not need to do anything more here. Launch client.py with the desired mode")
+    server.start()
+    signal.signal(signal.SIGINT, delete_files)
     server.start()
