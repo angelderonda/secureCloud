@@ -8,6 +8,9 @@ from encryption.AeadEncryptor import AeadEncryptor
 from uuid import uuid4, UUID as TestUUID
 import json
 import urllib3
+import bcrypt
+import pickle
+import datetime
 
 # Disable SSL verification warnings
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -93,8 +96,8 @@ def fromBytes(bytes):
     return int.from_bytes(bytes, "little")  # little endian
 
 
-def upload_cse(filename, metadata, host, output, verify):
-    if not os.path.isfile:
+def upload_cse(filename, metadata, host, output, verify, enc_algo):
+    if not os.path.isfile(filename):
         print(
             "Error opening file. Does it exist locally and do you have permissions to open it?"
         )
@@ -103,7 +106,7 @@ def upload_cse(filename, metadata, host, output, verify):
     print(f"Encrypting...")
 
     dek_key = generate_key()
-    dek_encryptor = AeadEncryptor(dek_key, "chacha")  # To cypher the files
+    dek_encryptor = AeadEncryptor(dek_key, enc_algo)  # To cypher the files
 
     with open(filename, mode="rb") as f:
         nonce_dek, encrypted, signature_dek = dek_encryptor.encrypt(f.read(), metadata)
@@ -119,7 +122,7 @@ def upload_cse(filename, metadata, host, output, verify):
         requests.post(
             f"{host}/upload",
             files={"file": to_upload},
-            data={"dzuuid": fileid, "dzchunkindex": 0, "dztotalchunkcount": 1},
+            data={"dzuuid": fileid, "dzchunkindex": 0, "dztotalchunkcount": 1, "filename": filename},
             verify=verify,
         )
         print(f"Successfully uploaded {filename} with uuid {fileid}!")
@@ -132,6 +135,15 @@ def upload_cse(filename, metadata, host, output, verify):
     master_key, key_id = create_or_reuse_master_key()
     master_encryptor = AeadEncryptor(master_key, "chacha")
     key_nonce, key_encrypyted, key_signature = master_encryptor.encrypt(dek_key, b"")
+    password = input("Enter password to protect the key file: ")
+    password2 = input("Enter password again: ")
+    while password != password2:
+        print("Passwords do not match. Try again.")
+        password = input("Enter password to protect the key file: ")
+        password2 = input("Enter password again: ")
+    password = password.encode('utf-8')
+    salt = bcrypt.gensalt()
+    hashed = bcrypt.hashpw(password, salt)
 
     with open(output if output else filename + ".key", "w+") as f:
         f.write(
@@ -144,19 +156,29 @@ def upload_cse(filename, metadata, host, output, verify):
                     "key": key_encrypyted.hex(),
                     "key_id": key_id,
                     "uuid": fileid,
+                    "enc_algo": enc_algo,
+                    "password": hashed.hex(),
+                    "salt": salt.hex()
                 }
             )
         )
 
-def list_files(host, verify):
-    result = requests.get(
-            f"{host}/list",
-            verify=verify,
-        )
-    print('Files:')
+
+def list_files(host, verify, user, groups):
+    if groups == []:
+        groups = ""
+    result = requests.post(
+        f"{host}/list",
+        data={"user": user, "groups": groups},
+        verify=verify,
+    )
+    print("User info:")
+    print("username: " + user + ", groups: " + str(groups))
+    print("Files:")
     print(result.text)
 
-def download_cse(keyfile, host, output, verify):
+
+def download_cse(keyfile, host, output, verify, user, groups):
     if not os.path.isfile:
         print(
             "Error opening key file. Does it exist locally and do you have permissions to open it?"
@@ -164,6 +186,14 @@ def download_cse(keyfile, host, output, verify):
         sys.exit(1)
     with open(keyfile) as f:
         keydata = json.loads(f.read())
+    
+    password = input("Enter password to decrypt the key file: ")
+    password = password.encode('utf-8')
+    salt = bytes.fromhex(keydata["salt"])
+    hashed = bytes.fromhex(keydata["password"])
+    if hashed != bcrypt.hashpw(password, salt):
+        print("Wrong password")
+        sys.exit(1)
     master_key = search_master_key(keydata["key_id"])
     master_encryptor = AeadEncryptor(master_key, "chacha")
     dek_key = master_encryptor.decrypt(
@@ -172,7 +202,7 @@ def download_cse(keyfile, host, output, verify):
         bytes.fromhex(keydata["nonce_key"]),
         bytes.fromhex(keydata["signature_key"]),
     )
-    dek_encryptor = AeadEncryptor(dek_key, "chacha")
+    dek_encryptor = AeadEncryptor(dek_key, keydata["enc_algo"])
 
     try:
         result = requests.get(f'{host}/download/{keydata["uuid"]}', verify=verify)
@@ -189,21 +219,40 @@ def download_cse(keyfile, host, output, verify):
 
     # to understand this format, look at to_upload in download_cse function above
     metalen = fromBytes(result.content[:4])
-    metadata = result.content[4:metalen]
+    metadata = result.content[4 : 4 + metalen]
     data = result.content[metalen + 8 :]
-    plaintext = dek_encryptor.decrypt(
-        data,
-        metadata,
-        bytes.fromhex(keydata["nonce_dek"]),
-        bytes.fromhex(keydata["signature_dek"]),
-    )
+    try:
+        plaintext = dek_encryptor.decrypt(
+            data,
+            metadata,
+            bytes.fromhex(keydata["nonce_dek"]),
+            bytes.fromhex(keydata["signature_dek"]),
+        )
+    except:
+        print("Error: the file has been tampered with!")
+        sys.exit(1)
+    
+    user_match = re.search(r"user=([^\s,]+)", metadata.decode("utf-8"))
 
-    print(f'Recieved file with metadata: {metadata.decode("utf-8")}')
+    if user_match:
+        user_value = user_match.group(1)
+        if user_value != user:
+            group_match = re.search(r"group=([^\s,]+)", metadata.decode("utf-8"))
+            group_value = group_match.group(1)
+            if group_value != 'self' and group_value in groups:
+                print("Downloading file from user: " + user_value + " because you belong to group: " + group_value + "")
+                pass
+            else:
+                print(f"Error: the file was uploaded by another user and you have no permission to download it")
+                exit()
+    
+    print(f'Received file with metadata: {metadata.decode("utf-8")}')
 
     # write the encrypted file to output if one was given,
     # or to the location of the keyfile without the .key ending
     with open(output if output else keyfile.split(".key")[0], "wb") as f:
         f.write(plaintext)
+
 
 def delete(file, host, verify):
     # test if file is a uuid or a keyfile
@@ -230,6 +279,26 @@ def delete(file, host, verify):
 
     print("File deleted successfully!")
 
+def login(username):
+    users = []
+    with open("users.pkl", "rb") as f:
+        users = pickle.load(f)
+    for user in users:
+        if username == user["username"]:
+            print("Welcome to the secureCloud login system, " + username + "!")
+            password = input("Please enter your password to login: ")
+            password = password.encode("utf-8")
+            salt = user["salt"]
+            hashed = bcrypt.hashpw(password, salt)
+            if hashed == user["password"]:
+                print("Login successful!")
+                return True, user["groups"]
+            else:
+                print("Login failed!")
+                return False, []
+    print("User not found!")
+    return False, []
+
 
 def main():
     parser = argparse.ArgumentParser(
@@ -253,15 +322,30 @@ The client offers a few different modes that treat the FILE argument differently
         help="What file to operate on. Is a local filename in case of upload, file ID otherwise",
     )
     parser.add_argument(
-        "--host",
-        default="https://localhost:443",
-        help="Location of the server host. Default https://localhost:443",
+        "-u",
+        "--user",
+        required=True,
+        help="Username to use for authentication.",
     )
+    parser.add_argument(
+        "-e",
+        "--encrypt",
+        required=False,
+        default="chacha",
+        help="Encryption algorithm to use. Default: chacha",
+        choices=["chacha", "aes-ccm", "aes-gcm", "aes-ocb3"],
+    )
+
     parser.add_argument(
         "-m",
         "--metadata",
         default=b"",
         help="Unencrypted but authenticated data to upload alongside file.",
+    )
+    parser.add_argument(
+        "--host",
+        default="https://localhost:443",
+        help="Location of the server host. Default https://localhost:443",
     )
     parser.add_argument(
         "-s",
@@ -276,20 +360,50 @@ The client offers a few different modes that treat the FILE argument differently
         required=False,
         help=" When downloading: Location to store file.\nWhen uploading: key file containing nessecary data to decrypt the file later when uploading. Default: <filename>.key",
     )
-
+    parser.add_argument(
+        "-g",
+        "--group",
+        required=False,
+        default="self",
+        help="Group to share the file with. Only the owner of the file can share it with a group"
+    )
     args = parser.parse_args()
+    login_suc, groups = login(args.user)
+    if not login_suc:
+        print("Login failed. Exiting.")
+        sys.exit(1)
+    user = args.user
     if args.skip_verify:
         print("WARNING: Skipping TLS certificate verification. USE ONLY FOR TESTING!")
     if args.MODE == "u" or args.MODE == "upload":
+        args.metadata = (
+            "user="
+            + user
+            + ", "
+            + "date="
+            + str(datetime.datetime.utcnow())
+            + ", "
+            + "group="
+            + args.group
+            + ", "
+            + "user-defined="
+            + args.metadata
+        )
+        args.metadata = args.metadata.encode("utf-8")
         upload_cse(
-            args.FILE, args.metadata, args.host, args.output, not args.skip_verify
+            args.FILE,
+            args.metadata,
+            args.host,
+            args.output,
+            not args.skip_verify,
+            args.encrypt,
         )
     elif args.MODE == "d" or args.MODE == "download":
-        download_cse(args.FILE, args.host, args.output, not args.skip_verify)
+        download_cse(args.FILE, args.host, args.output, not args.skip_verify, user, groups)
     elif args.MODE == "r":
         delete(args.FILE, args.host, not args.skip_verify)
     elif args.MODE == "l":
-        list_files(args.host, not args.skip_verify)
+        list_files(args.host, not args.skip_verify, user, groups)
     else:
         raise NotImplementedError()
 

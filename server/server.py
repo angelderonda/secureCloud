@@ -13,7 +13,6 @@ import time
 from encryption.AeadEncryptor import AeadEncryptor
 import threading
 import re
-import math
 
 from bottle import Bottle, request, response, HTTPError, static_file, redirect
 from werkzeug.utils import secure_filename
@@ -31,6 +30,7 @@ dropzone_max_file_size = "100000"
 dropzone_chunk_size = "1000000"
 dropzone_parallel_chunks = "true"
 dropzone_force_chunking = "true"
+mode = "sse"
 
 lock = Lock()
 chuncks = defaultdict(list)
@@ -120,6 +120,8 @@ def handle_500(error_message):
 
 @app.route("/")
 def index():
+    if mode == "cse":
+        return "Server is running in CSE mode. Interface is not available."
     return f"""
 <!doctype html>
 <html lang="en">
@@ -219,14 +221,22 @@ def index():
 </html>
     """
 
+
 def find_uploaded_file(dz_uuid):
-    for file in storage_path.iterdir():
-        if file.is_file() and file.name.startswith(dz_uuid):
-            if file.name.endswith(".key"):
-                keyfile = file
-            else:
-                mainfile = file
-    return mainfile, keyfile
+    if mode == "cse":
+        for file in storage_path.iterdir():
+            if file.is_file() and file.name.startswith(dz_uuid):
+                return file
+        return None
+    else:
+        for file in storage_path.iterdir():
+            if file.is_file() and file.name.startswith(dz_uuid):
+                if file.name.endswith(".key"):
+                    keyfile = file
+                else:
+                    mainfile = file
+        return mainfile, keyfile
+
 
 @app.route("/upload", method="POST")
 def upload():
@@ -252,55 +262,92 @@ def upload():
     if not save_dir.exists():
         save_dir.mkdir(exist_ok=True, parents=True)
 
-    dek_key = generate_key()
-    dek_encryptor = AeadEncryptor(dek_key, "chacha")
-    metadata = b""
-    nonce_dek, encrypted, signature_dek = dek_encryptor.encrypt(file.file.read(), b"")
-
-    with open(save_dir / str(current_chunk), "wb") as f:
-        f.write(
-            to_bytes(len(metadata)) + metadata + to_bytes(len(encrypted)) + encrypted
+    if mode == "sse":
+        dek_key = generate_key()
+        dek_encryptor = AeadEncryptor(dek_key, "chacha")
+        metadata = b""
+        nonce_dek, encrypted, signature_dek = dek_encryptor.encrypt(
+            file.file.read(), b""
         )
 
-    master_key, key_id = create_or_reuse_master_key()
-    master_encryptor = AeadEncryptor(master_key, "chacha")
-    key_nonce, key_encrypyted, key_signature = master_encryptor.encrypt(dek_key, b"")
+        with open(save_dir / str(current_chunk), "wb") as f:
+            f.write(
+                to_bytes(len(metadata))
+                + metadata
+                + to_bytes(len(encrypted))
+                + encrypted
+            )
 
-    with open(
-        storage_path / f"{dz_uuid}_{secure_filename(file.filename)}.key", "a+"
-    ) as f:
-        f.write(
-            json.dumps(
-                {
-                    "nonce_dek": nonce_dek.hex(),
-                    "signature_dek": signature_dek.hex(),
-                    "nonce_key": key_nonce.hex(),
-                    "signature_key": key_signature.hex(),
-                    "key": key_encrypyted.hex(),
-                    "key_id": key_id,
-                    "dzchunkindex": request.forms["dzchunkindex"],
-                    "chunk_size": len(to_bytes(len(metadata)) + metadata + to_bytes(len(encrypted)) + encrypted),
-                }
-            ) + "\n"
+        master_key, key_id = create_or_reuse_master_key()
+        master_encryptor = AeadEncryptor(master_key, "chacha")
+        key_nonce, key_encrypyted, key_signature = master_encryptor.encrypt(
+            dek_key, b""
         )
 
-    # See if we have all the chunks downloaded
-    with lock:
-        chuncks[dz_uuid].append(current_chunk)
-        completed = len(chuncks[dz_uuid]) == total_chunks
-
-    # Concat all the files into the final file when all are downloaded
-    if completed:
         with open(
-            storage_path / f"{dz_uuid}_{secure_filename(file.filename)}", "wb"
+            storage_path / f"{dz_uuid}_{secure_filename(file.filename)}.key", "a+"
         ) as f:
-            for file_number in range(total_chunks):
-                f.write((save_dir / str(file_number)).read_bytes())
-        print(f"{file.filename} has been uploaded")
-        shutil.rmtree(save_dir)
-        return "File upload successful"
+            f.write(
+                json.dumps(
+                    {
+                        "nonce_dek": nonce_dek.hex(),
+                        "signature_dek": signature_dek.hex(),
+                        "nonce_key": key_nonce.hex(),
+                        "signature_key": key_signature.hex(),
+                        "key": key_encrypyted.hex(),
+                        "key_id": key_id,
+                        "dzchunkindex": request.forms["dzchunkindex"],
+                        "chunk_size": len(
+                            to_bytes(len(metadata))
+                            + metadata
+                            + to_bytes(len(encrypted))
+                            + encrypted
+                        ),
+                    }
+                )
+                + "\n"
+            )
 
-    return "Chunk upload successful"
+        # See if we have all the chunks downloaded
+        with lock:
+            chuncks[dz_uuid].append(current_chunk)
+            completed = len(chuncks[dz_uuid]) == total_chunks
+
+        # Concat all the files into the final file when all are downloaded
+        if completed:
+            with open(
+                storage_path / f"{dz_uuid}_{secure_filename(file.filename)}", "wb"
+            ) as f:
+                for file_number in range(total_chunks):
+                    f.write((save_dir / str(file_number)).read_bytes())
+            print(f"{file.filename} has been uploaded")
+            shutil.rmtree(save_dir)
+            return "File upload successful"
+
+        return "Chunk upload successful"
+    else:
+        # Save the individual chunk
+        with open(save_dir / str(request.forms["dzchunkindex"]), "wb") as f:
+            file.save(f)
+
+        # See if we have all the chunks downloaded
+        with lock:
+            chuncks[dz_uuid].append(current_chunk)
+            completed = len(chuncks[dz_uuid]) == total_chunks
+
+        # Concat all the files into the final file when all are downloaded
+        if completed:
+            file.filename = request.forms.get("filename")
+            print(file.filename)
+            with open(
+                storage_path / f"{dz_uuid}_{secure_filename(file.filename)}", "wb"
+            ) as f:
+                for file_number in range(total_chunks):
+                    f.write((save_dir / str(file_number)).read_bytes())
+            print(f"{file.filename} has been uploaded")
+            shutil.rmtree(save_dir)
+
+        return "Chunk upload successful"
 
 
 def to_bytes(num):
@@ -310,6 +357,7 @@ def to_bytes(num):
 def fromBytes(bytes):
     return int.from_bytes(bytes, "little")  # little endian
 
+
 def read_file_in_chunks(filename, chunk_size):
     with open(filename, "rb") as f:
         while True:
@@ -317,6 +365,7 @@ def read_file_in_chunks(filename, chunk_size):
             if not chunk:
                 break
             yield chunk
+
 
 @app.route("/download/<dz_uuid>")
 def download(dz_uuid):
@@ -326,9 +375,17 @@ def download(dz_uuid):
     if not storage_path.exists():
         storage_path.mkdir(exist_ok=True, parents=True)
 
+    if mode == "cse":
+        file = find_uploaded_file(dz_uuid)
+        return (
+            static_file(file.name, root=file.parent.absolute(), download=True)
+            if file
+            else HTTPError(status=404)
+        )
+
     file, keyfile = find_uploaded_file(dz_uuid)
 
-    with open(keyfile, 'r') as f:
+    with open(keyfile, "r") as f:
         num_lines = sum(1 for line in f)
 
     if num_lines > 1:
@@ -339,7 +396,7 @@ def download(dz_uuid):
                 keys_dict[keydata["dzchunkindex"]] = keydata
         # multiple keys found
         count = 0
-        plaintext = b''
+        plaintext = b""
         with open(file, "rb") as f:
             while True:
                 if count == num_lines:
@@ -358,7 +415,7 @@ def download(dz_uuid):
                 dek_encryptor = AeadEncryptor(dek_key, "chacha")
 
                 metalen = fromBytes(chunk[:4])
-                metadata = chunk[4:metalen]
+                metadata = chunk[4 : 4 + metalen]
                 data = chunk[metalen + 8 :]
                 plaintext += dek_encryptor.decrypt(
                     data,
@@ -383,7 +440,7 @@ def download(dz_uuid):
 
         result = file.read_bytes()
         metalen = fromBytes(result[:4])
-        metadata = result[4:metalen]
+        metadata = result[4 : 4 + metalen]
         data = result[metalen + 8 :]
         plaintext = dek_encryptor.decrypt(
             data,
@@ -393,49 +450,90 @@ def download(dz_uuid):
         )
     with open(storage_path / str(keyfile).split(".key")[0][45:], "wb") as f:
         f.write(plaintext)
-    response = static_file(str(keyfile).split(".key")[0][45:],
+    response = static_file(
+        str(keyfile).split(".key")[0][45:],
         root=storage_path,
         download=True,
     )
 
-    t = threading.Thread(target=remove_file, args=(storage_path / str(keyfile).split(".key")[0][45:],))
+    t = threading.Thread(
+        target=remove_file, args=(storage_path / str(keyfile).split(".key")[0][45:],)
+    )
     t.start()
     return response
+
 
 def remove_file(file):
     time.sleep(2)
     os.remove(file)
 
+
 @app.route("/delete/<dz_uuid>", method="GET")
 def delete(dz_uuid):
-    print(f"Deleting file {dz_uuid}...")
-    file, keyfile = find_uploaded_file(dz_uuid)
-    if not file:
-        return HTTPError(status=404)
-    fm.secure_erase(storage_path / file.name, 10)
-    fm.secure_erase(storage_path / keyfile.name, 10)
-    print(f"Deleted file securely")
-    return redirect("/")
+    if mode == "cse":
+        print(f"Deleting file {dz_uuid}")
+        file = find_uploaded_file(dz_uuid)
+        if not file:
+            return HTTPError(status=404)
+        print(file.name)
+        fm.secure_erase(storage_path / file.name, 10)
+        return "Deleted file securely"
+    else:
+        print(f"Deleting file {dz_uuid}...")
+        file, keyfile = find_uploaded_file(dz_uuid)
+        if not file:
+            return HTTPError(status=404)
+        fm.secure_erase(storage_path / file.name, 10)
+        fm.secure_erase(storage_path / keyfile.name, 10)
+        print(f"Deleted file securely")
+        return redirect("/")
 
 
-@app.route("/list")
+@app.route("/list", method="POST")
 def list_files():
-    files = []
+    self_files = []
+    shared_files = []
+    user = request.POST.get("user")
+    group_post = request.POST.get("groups", "")
+    groups = []
+    for g in group_post.split(","):
+        groups.append(g)
     for file in storage_path.iterdir():
         if file.is_file():
-            files.append(
-                {
-                    "name": file.name[37:],
-                    "uuid": file.name[:36],
-                    "size": file.stat().st_size,
-                }
-            )
+            result = file.read_bytes()
+            metalen = fromBytes(result[:4])
+            metadata = result[4 : 4 + metalen]
+            user_match = re.search(r"user=([^\s,]+)", metadata.decode("utf-8"))
+            group_match = re.search(r"group=([^\s,]+)", metadata.decode("utf-8"))
+            user_value = user_match.group(1)
+            group_value = group_match.group(1)
+            if user_value == user:
+                self_files.append(
+                    {
+                        "name": file.name[37:],
+                        "uuid": file.name[:36],
+                        "size": str(file.stat().st_size) + " bytes",
+                        "owner": user_value,
+                        "group": group_value,
+                    }
+                )
+            elif group_value in groups:
+                shared_files.append(
+                    {
+                        "name": file.name[37:],
+                        "uuid": file.name[:36],
+                        "size": str(file.stat().st_size) + " bytes",
+                        "owner": user_value,
+                        "group": group_value,
+                    }
+                )
     response.content_type = "application/json"
-    return json.dumps(files)
+    return json.dumps(self_files + shared_files)
 
 
 def parse_args():
     parser = argparse.ArgumentParser()
+    parser.add_argument("-m", "--mode", type=str, default="sse", required=False)
     parser.add_argument(
         "-s", "--storage", type=str, default=str(storage_path), required=False
     )
@@ -490,6 +588,7 @@ if __name__ == "__main__":
     dropzone_chunk_size = args.chunk_size
     dropzone_timeout = args.timeout
     dropzone_max_file_size = args.max_size
+    mode = args.mode
     try:
         if (
             int(dropzone_timeout) < 1
@@ -534,7 +633,17 @@ Chunk Path: {chunk_path.absolute()}
     server.ssl_adapter = BuiltinSSLAdapter(
         certificate="adhoc.crt", private_key="adhoc.key"
     )
-    print("Server SSE started on https://localhost/")
+    if mode == "sse":
+        print(
+            "Server SSE started on https://localhost/. You can change to CSE mode by adding -m cse to the command line"
+        )
+    else:
+        print(
+            "Server CSE started on https://localhost/. You can change to SSE mode by adding -m sse to the command line"
+        )
+        print(
+            "You do not need to do anything more here. Launch client.py with the desired mode"
+        )
 
     signal.signal(signal.SIGINT, delete_files)
     server.start()
