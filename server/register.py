@@ -31,14 +31,9 @@ password = password.encode('utf-8')
 salt = bcrypt.gensalt()
 hashed = bcrypt.hashpw(password, salt)
 
-groups = []
-group_val = input("Please enter groups to join (separated by commas): ")
-if group_val != "":
-    groups_input = group_val.split(",")
-    for group in groups_input:
-        groups.append(group.strip())
-
-users.append({'username': username, 'password': hashed, 'salt': salt, 'groups': groups})
+users.append({'username': username, 'password': hashed, 'salt': salt, 'groups': []})
 
 with open('users.pkl', 'wb') as f:
     pickle.dump(users, f)
+
+print("Registration successful for user " + username)

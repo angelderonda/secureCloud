@@ -338,7 +338,6 @@ def upload():
         # Concat all the files into the final file when all are downloaded
         if completed:
             file.filename = request.forms.get("filename")
-            print(file.filename)
             with open(
                 storage_path / f"{dz_uuid}_{secure_filename(file.filename)}", "wb"
             ) as f:
@@ -528,7 +527,7 @@ def list_files():
                     }
                 )
     response.content_type = "application/json"
-    return json.dumps(self_files + shared_files)
+    return "{'self-owned': " + json.dumps(self_files) + ", 'shared-folders': " + json.dumps(shared_files) + "}"
 
 
 def parse_args():

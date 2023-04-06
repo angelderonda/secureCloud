@@ -81,7 +81,7 @@ Then, you can launch the client script. The client script is a single use file t
 To upload a file to the server, you can use the following command:
 
 ```python
-python client.py u <file> -u <username> -s -m <user_defined_metadata> -g <group> -e <encryption_mode>
+python client.py u <file> -u <username> -s -m <user_defined_metadata> -e <encryption_mode>
 ```
 
 You can find more information about the options running help:
@@ -116,6 +116,16 @@ python client.py r <keyfile>/<uuid> -u <username> -s
 ```
 
 It will ask you for your login credentials. Then, it will remove the file from the server in a secure way.
+
+#### Using the shared folder feature
+
+You can use the shared folder feature to share files with other users. To do that, you need to upload a file to the server and then share it with other users. You can use the following command:
+
+```python
+python client.py u <file> -u <username> -s -m <user_defined_metadata> -e <encryption_mode> -f <shared_folder>
+```
+
+If the shared folder is new, the client will ask you to insert the users that will be able to access the folder. If the shared folder already exists, it will upload the file to the existing folder. You can download, list and remove the files from the shared folder as you were the owner of the file.
 
 ### SSE
 
