@@ -122,7 +122,12 @@ def upload_cse(filename, metadata, host, output, verify, enc_algo):
         requests.post(
             f"{host}/upload",
             files={"file": to_upload},
-            data={"dzuuid": fileid, "dzchunkindex": 0, "dztotalchunkcount": 1, "filename": filename},
+            data={
+                "dzuuid": fileid,
+                "dzchunkindex": 0,
+                "dztotalchunkcount": 1,
+                "filename": filename,
+            },
             verify=verify,
         )
         print(f"Successfully uploaded {filename} with uuid {fileid}!")
@@ -141,7 +146,7 @@ def upload_cse(filename, metadata, host, output, verify, enc_algo):
         print("Passwords do not match. Try again.")
         password = input("Enter password to protect the key file: ")
         password2 = input("Enter password again: ")
-    password = password.encode('utf-8')
+    password = password.encode("utf-8")
     salt = bcrypt.gensalt()
     hashed = bcrypt.hashpw(password, salt)
 
@@ -158,7 +163,7 @@ def upload_cse(filename, metadata, host, output, verify, enc_algo):
                     "uuid": fileid,
                     "enc_algo": enc_algo,
                     "password": hashed.hex(),
-                    "salt": salt.hex()
+                    "salt": salt.hex(),
                 }
             )
         )
@@ -186,9 +191,9 @@ def download_cse(keyfile, host, output, verify, user, groups):
         sys.exit(1)
     with open(keyfile) as f:
         keydata = json.loads(f.read())
-    
+
     password = input("Enter password to decrypt the key file: ")
-    password = password.encode('utf-8')
+    password = password.encode("utf-8")
     salt = bytes.fromhex(keydata["salt"])
     hashed = bytes.fromhex(keydata["password"])
     if hashed != bcrypt.hashpw(password, salt):
@@ -231,7 +236,7 @@ def download_cse(keyfile, host, output, verify, user, groups):
     except:
         print("Error: the file has been tampered with!")
         sys.exit(1)
-    
+
     user_match = re.search(r"user=([^\s,]+)", metadata.decode("utf-8"))
 
     if user_match:
@@ -239,13 +244,21 @@ def download_cse(keyfile, host, output, verify, user, groups):
         if user_value != user:
             group_match = re.search(r"group=([^\s,]+)", metadata.decode("utf-8"))
             group_value = group_match.group(1)
-            if group_value != 'self' and group_value in groups:
-                print("Downloading file from user: " + user_value + " because you belong to group: " + group_value + "")
+            if group_value != "self" and group_value in groups:
+                print(
+                    "Downloading file from user: "
+                    + user_value
+                    + " because you belong to shared folder: "
+                    + group_value
+                    + ""
+                )
                 pass
             else:
-                print(f"Error: the file was uploaded by another user and you have no permission to download it")
+                print(
+                    f"Error: the file was uploaded by another user and you have no permission to download it"
+                )
                 exit()
-    
+
     print(f'Received file with metadata: {metadata.decode("utf-8")}')
 
     # write the encrypted file to output if one was given,
@@ -278,6 +291,7 @@ def delete(file, host, verify):
         sys.exit(1)
 
     print("File deleted successfully!")
+
 
 def login(username):
     users = []
@@ -361,34 +375,45 @@ The client offers a few different modes that treat the FILE argument differently
         help=" When downloading: Location to store file.\nWhen uploading: key file containing nessecary data to decrypt the file later when uploading. Default: <filename>.key",
     )
     parser.add_argument(
-        "-g",
-        "--group",
+        "-f",
+        "--shared-folder",
         required=False,
+        help="When uploading: The group that the file will be shared with. Default: self (only the user can access the file).",
         default="self",
-        help="Group to share the file with. Only the owner of the file can share it with a group"
     )
     args = parser.parse_args()
-    login_suc, groups = login(args.user)
+    user = args.user
+    login_suc, groups = login(user)
     if not login_suc:
         print("Login failed. Exiting.")
         sys.exit(1)
-    user = args.user
+
     if args.skip_verify:
         print("WARNING: Skipping TLS certificate verification. USE ONLY FOR TESTING!")
-    if args.MODE == "u" or args.MODE == "upload":
-        args.metadata = (
-            "user="
-            + user
-            + ", "
-            + "date="
-            + str(datetime.datetime.utcnow())
-            + ", "
-            + "group="
-            + args.group
-            + ", "
-            + "user-defined="
-            + args.metadata
+
+    # creating and adding a new shared folder
+    if args.shared_folder != "self" and args.shared_folder not in groups:
+        print("New shared folder: " + args.shared_folder)
+        users = input(
+            "Enter the users that you want to share the file with (separated by a comma): "
         )
+        users = users.split(",")
+        user_dict = []
+        with open("users.pkl", "rb") as f:
+            user_dict = pickle.load(f)
+            for i in range(len(user_dict)):
+                if user_dict[i]["username"] == user or user_dict[i]["username"] in users:
+                    user_dict[i]["groups"].append(args.shared_folder)
+                    user_dict[i]["groups"] = list(set(user_dict[i]["groups"]))
+                    user_dict[i]["groups"].sort()
+                
+        with open("users.pkl", "wb") as f:
+            print(user_dict)
+            pickle.dump(user_dict, f)
+            print("Shared folder created successfully!")
+
+    if args.MODE == "u" or args.MODE == "upload":
+        args.metadata = "user=" + str(args.user) + ", " + "date=" + str(datetime.datetime.utcnow()) + ", " + "group="+ str(args.shared_folder) + ", "+ "user-defined=" + str(args.metadata)
         args.metadata = args.metadata.encode("utf-8")
         upload_cse(
             args.FILE,
@@ -399,7 +424,9 @@ The client offers a few different modes that treat the FILE argument differently
             args.encrypt,
         )
     elif args.MODE == "d" or args.MODE == "download":
-        download_cse(args.FILE, args.host, args.output, not args.skip_verify, user, groups)
+        download_cse(
+            args.FILE, args.host, args.output, not args.skip_verify, user, groups
+        )
     elif args.MODE == "r":
         delete(args.FILE, args.host, not args.skip_verify)
     elif args.MODE == "l":
