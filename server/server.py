@@ -81,7 +81,7 @@ def create_or_reuse_master_key():
             "master_key": list(
                 master_key
             ),  # Convert binary data to a list for JSON serialization
-            "remaining_uses": 100,
+            "remaining_uses": 99,
         }
         with open(new_key_file, "w") as f:
             json.dump(new_key_data, f)
