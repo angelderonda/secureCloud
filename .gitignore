@@ -24,7 +24,7 @@ securecloud_accessKeys.csv
 instance/
 
 
-server/users.pkl
-server/keys
-server/storage
-server/chunk
+src/users.pkl
+src/keys
+src/storage
+src/chunk

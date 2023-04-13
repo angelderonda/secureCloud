@@ -28,7 +28,7 @@ Then, you must create a `credentials.json` file in the root directory like this:
 
 Remember that we are using AMS KMS so you will need to create an AWS account and set up a Customer Master Key (CMK) in KMS. You can find more information [here](https://docs.aws.amazon.com/kms/latest/developerguide/create-keys.html).
 
-Before launching the application, you must generate a certificate and a private key in `server` folder using openssl (if you are using Windows, you can download [here](https://slproweb.com/download/Win64OpenSSL_Light-3_1_0.exe)). You can do it like this (keep in mind that if you change the name of the files, you will have to change the name in the code on `server/server.py` line 634):
+Before launching the application, you must generate a certificate and a private key in `src` folder using openssl (if you are using Windows, you can download [here](https://slproweb.com/download/Win64OpenSSL_Light-3_1_0.exe)). You can do it like this (keep in mind that if you change the name of the files, you will have to change the name in the code on `src/server.py` line 634):
 
 ```
 openssl genpkey -algorithm RSA -out adhoc.key
@@ -36,7 +36,7 @@ openssl req -new -x509 -key adhoc.key -out adhoc.crt -days 3650
 ```
 ## STRUCTURE 📁
 
-The project itself is stored in `server` folder. In this folder, we can find:
+The project itself is stored in `src` folder. In this folder, we can find:
 - `adhoc.crt`: Certificate file.
 - `adhoc.key`: Private key file.
 - `credentials.json`: File with the credentials to access AWS.
@@ -60,7 +60,7 @@ In CSE, the client encrypts the data with a DEK provided by AWS KMS service and 
 First, you need to launch the server in CSE mode:
 
 ```python
-cd server
+cd src
 python server.py -m cse
 ```
 
@@ -136,7 +136,7 @@ For that, the server uses TLS to encrypt the communication between the client an
 First, you need to launch the server in SSE mode:
 
 ```python
-cd server
+cd src
 python server.py -m sse
 ```
 
