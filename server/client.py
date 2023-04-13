@@ -3,8 +3,11 @@ from uuid import uuid4
 import argparse
 import sys
 import re
-import os, boto3
+import os
+import boto3
 from encryption.AeadEncryptor import AeadEncryptor
+from encryption.AeEncryptor import AeEncryptor
+from encryption.algorithms import aead_algorithms, encryption_algorithms
 from uuid import uuid4, UUID as TestUUID
 import json
 import urllib3
@@ -84,7 +87,8 @@ def search_master_key(id):
 
 def generate_key():
     # Generate new key
-    response = kms_client.generate_data_key(KeyId=cred["KEY_ID"], KeySpec="AES_256")
+    response = kms_client.generate_data_key(
+        KeyId=cred["KEY_ID"], KeySpec="AES_256")
     return response["Plaintext"]
 
 
@@ -94,6 +98,14 @@ def to_bytes(num):
 
 def fromBytes(bytes):
     return int.from_bytes(bytes, "little")  # little endian
+
+
+def get_encryptor(key, algo_name, hash_algo_name="sha-256"):
+    if algo_name in encryption_algorithms:
+        return AeEncryptor(key, algo_name, hash_algo_name)
+    if algo_name in aead_algorithms:
+        return AeadEncryptor(key, algo_name)
+    raise ValueError(f"Unknown encryption algorithm name: {algo_name}")
 
 
 def upload_cse(filename, metadata, host, output, verify, enc_algo):
@@ -106,17 +118,19 @@ def upload_cse(filename, metadata, host, output, verify, enc_algo):
     print(f"Encrypting...")
 
     dek_key = generate_key()
-    dek_encryptor = AeadEncryptor(dek_key, enc_algo)  # To cypher the files
+    dek_encryptor = get_encryptor(dek_key, enc_algo)  # To cypher the files
 
     with open(filename, mode="rb") as f:
-        nonce_dek, encrypted, signature_dek = dek_encryptor.encrypt(f.read(), metadata)
+        nonce_dek, encrypted, signature_dek = dek_encryptor.encrypt(
+            f.read(), metadata)
 
     print("Uploading...")
 
     # Upload includes both unencrypted metadata and encrypted file
     # preceded by their length to restore them afterwards
     to_upload = (
-        to_bytes(len(metadata)) + metadata + to_bytes(len(encrypted)) + encrypted
+        to_bytes(len(metadata)) + metadata +
+        to_bytes(len(encrypted)) + encrypted
     )
     try:
         requests.post(
@@ -138,8 +152,9 @@ def upload_cse(filename, metadata, host, output, verify, enc_algo):
         sys.exit(1)
 
     master_key, key_id = create_or_reuse_master_key()
-    master_encryptor = AeadEncryptor(master_key, "chacha")
-    key_nonce, key_encrypyted, key_signature = master_encryptor.encrypt(dek_key, b"")
+    master_encryptor = get_encryptor(master_key, "chacha")
+    key_nonce, key_encrypyted, key_signature = master_encryptor.encrypt(
+        dek_key, b"")
     password = input("Enter password to protect the key file: ")
     password2 = input("Enter password again: ")
     while password != password2:
@@ -200,17 +215,18 @@ def download_cse(keyfile, host, output, verify, user, groups):
         print("Wrong password")
         sys.exit(1)
     master_key = search_master_key(keydata["key_id"])
-    master_encryptor = AeadEncryptor(master_key, "chacha")
+    master_encryptor = get_encryptor(master_key, "chacha")
     dek_key = master_encryptor.decrypt(
         bytes.fromhex(keydata["key"]),
         b"",
         bytes.fromhex(keydata["nonce_key"]),
         bytes.fromhex(keydata["signature_key"]),
     )
-    dek_encryptor = AeadEncryptor(dek_key, keydata["enc_algo"])
+    dek_encryptor = get_encryptor(dek_key, keydata["enc_algo"])
 
     try:
-        result = requests.get(f'{host}/download/{keydata["uuid"]}', verify=verify)
+        result = requests.get(
+            f'{host}/download/{keydata["uuid"]}', verify=verify)
         if result.status_code == 404:
             print("Error: the file doesn't exist on the server")
             sys.exit(1)
@@ -224,8 +240,8 @@ def download_cse(keyfile, host, output, verify, user, groups):
 
     # to understand this format, look at to_upload in download_cse function above
     metalen = fromBytes(result.content[:4])
-    metadata = result.content[4 : 4 + metalen]
-    data = result.content[metalen + 8 :]
+    metadata = result.content[4: 4 + metalen]
+    data = result.content[metalen + 8:]
     try:
         plaintext = dek_encryptor.decrypt(
             data,
@@ -242,7 +258,8 @@ def download_cse(keyfile, host, output, verify, user, groups):
     if user_match:
         user_value = user_match.group(1)
         if user_value != user:
-            group_match = re.search(r"group=([^\s,]+)", metadata.decode("utf-8"))
+            group_match = re.search(
+                r"group=([^\s,]+)", metadata.decode("utf-8"))
             group_value = group_match.group(1)
             if group_value != "self" and group_value in groups:
                 print(
@@ -329,7 +346,8 @@ The client offers a few different modes that treat the FILE argument differently
     parser.add_argument(
         "MODE",
         help="What to do.",
-        choices=["upload", "u", "download", "d", "delete", "remove", "r", "list", "l"],
+        choices=["upload", "u", "download", "d",
+                 "delete", "remove", "r", "list", "l"],
     )
     parser.add_argument(
         "FILE",
@@ -347,7 +365,8 @@ The client offers a few different modes that treat the FILE argument differently
         required=False,
         default="chacha",
         help="Encryption algorithm to use. Default: chacha",
-        choices=["chacha", "aes-ccm", "aes-gcm", "aes-ocb3"],
+        choices=list(aead_algorithms.keys()) +
+        list(encryption_algorithms.keys()),
     )
 
     parser.add_argument(
@@ -406,14 +425,15 @@ The client offers a few different modes that treat the FILE argument differently
                     user_dict[i]["groups"].append(args.shared_folder)
                     user_dict[i]["groups"] = list(set(user_dict[i]["groups"]))
                     user_dict[i]["groups"].sort()
-                
+
         with open("users.pkl", "wb") as f:
             print(user_dict)
             pickle.dump(user_dict, f)
             print("Shared folder created successfully!")
 
     if args.MODE == "u" or args.MODE == "upload":
-        args.metadata = "user=" + str(args.user) + ", " + "date=" + str(datetime.datetime.utcnow()) + ", " + "group="+ str(args.shared_folder) + ", "+ "user-defined=" + str(args.metadata)
+        args.metadata = "user=" + str(args.user) + ", " + "date=" + str(datetime.datetime.utcnow(
+        )) + ", " + "group=" + str(args.shared_folder) + ", " + "user-defined=" + str(args.metadata)
         args.metadata = args.metadata.encode("utf-8")
         upload_cse(
             args.FILE,
