@@ -17,8 +17,6 @@ import re
 from bottle import Bottle, request, response, HTTPError, static_file, redirect
 from werkzeug.utils import secure_filename
 
-from encryption.FileManager import FileManager
-
 storage_path: Path = Path(__file__).parent / "storage"
 chunk_path: Path = Path(__file__).parent / "chunk"
 
@@ -35,7 +33,6 @@ mode = "sse"
 lock = Lock()
 chuncks = defaultdict(list)
 app = Bottle()
-fm = FileManager()
 
 # We read de credentials file
 with open("credentials.json") as cred_file:
@@ -110,6 +107,15 @@ def generate_key():
     response = kms_client.generate_data_key(KeyId=cred["KEY_ID"], KeySpec="AES_256")
     return response["Plaintext"]
 
+
+def secure_erase(self, filename: str, passes = 1):
+    with open(filename, 'ab') as f:
+        file_len = f.tell()
+    with open(filename, 'wb') as f:
+        for i in range(passes):
+            f.seek(0)
+            f.write(os.urandom(file_len))
+    os.remove(filename)
 
 @app.error(500)
 def handle_500(error_message):
@@ -475,15 +481,15 @@ def delete(dz_uuid):
         if not file:
             return HTTPError(status=404)
         print(file.name)
-        fm.secure_erase(storage_path / file.name, 10)
+        secure_erase(storage_path / file.name, 10)
         return "Deleted file securely"
     else:
         print(f"Deleting file {dz_uuid}...")
         file, keyfile = find_uploaded_file(dz_uuid)
         if not file:
             return HTTPError(status=404)
-        fm.secure_erase(storage_path / file.name, 10)
-        fm.secure_erase(storage_path / keyfile.name, 10)
+        secure_erase(storage_path / file.name, 10)
+        secure_erase(storage_path / keyfile.name, 10)
         print(f"Deleted file securely")
         return redirect("/")
 
@@ -567,14 +573,14 @@ def parse_args():
     parser.add_argument("--dz-version", type=str, default=None, required=False)
     return parser.parse_args()
 
-
+# Delete all temporary files. Is called automatically when the sever is terminated
 def delete_files(signum, frame):
     directory = storage_path
     for filename in os.listdir(directory):
         file_path = os.path.join(directory, filename)
         try:
             if os.path.isfile(file_path):
-                fm.secure_erase(file_path, 10)
+                secure_erase(file_path, 10)
                 print(f"Deleted file: {file_path}")
         except Exception as e:
             print(f"Error deleting file {file_path}: {e}")
