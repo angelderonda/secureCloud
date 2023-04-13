@@ -1,5 +1,6 @@
 import bcrypt
 import pickle
+from getpass import getpass
 
 users = []
 
@@ -20,8 +21,8 @@ for user in users:
         print("Username already taken. Please try again.")
         exit()
 
-password = input("Please enter a password: ")
-password2 = input("Please enter your password again: ")
+password = getpass("Please enter a password: ")
+password2 = getpass("Please enter your password again: ")
 
 if password != password2:
     print("Passwords do not match. Please try again.")

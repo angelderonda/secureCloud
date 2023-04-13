@@ -23,5 +23,8 @@ securecloud_accessKeys.csv
 *.key
 instance/
 
+
+server/users.pkl
+server/keys
 server/storage
 server/chunk
