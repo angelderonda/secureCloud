@@ -104,11 +104,12 @@ def search_master_key(id):
 
 def generate_key():
     # Generate new key
-    response = kms_client.generate_data_key(KeyId=cred["KEY_ID"], KeySpec="AES_256")
+    response = kms_client.generate_data_key(
+        KeyId=cred["KEY_ID"], KeySpec="AES_256")
     return response["Plaintext"]
 
 
-def secure_erase(self, filename: str, passes = 1):
+def secure_erase(filename: str, passes=1):
     with open(filename, 'ab') as f:
         file_len = f.tell()
     with open(filename, 'wb') as f:
@@ -116,6 +117,7 @@ def secure_erase(self, filename: str, passes = 1):
             f.seek(0)
             f.write(os.urandom(file_len))
     os.remove(filename)
+
 
 @app.error(500)
 def handle_500(error_message):
@@ -261,7 +263,8 @@ def upload():
             status=400, body=f"Not all required fields supplied, missing {err}"
         )
     except ValueError:
-        raise HTTPError(status=400, body=f"Values provided were not in expected format")
+        raise HTTPError(
+            status=400, body=f"Values provided were not in expected format")
 
     save_dir = chunk_path / dz_uuid
 
@@ -291,7 +294,8 @@ def upload():
         )
 
         with open(
-            storage_path / f"{dz_uuid}_{secure_filename(file.filename)}.key", "a+"
+            storage_path /
+                f"{dz_uuid}_{secure_filename(file.filename)}.key", "a+"
         ) as f:
             f.write(
                 json.dumps(
@@ -322,7 +326,8 @@ def upload():
         # Concat all the files into the final file when all are downloaded
         if completed:
             with open(
-                storage_path / f"{dz_uuid}_{secure_filename(file.filename)}", "wb"
+                storage_path /
+                    f"{dz_uuid}_{secure_filename(file.filename)}", "wb"
             ) as f:
                 for file_number in range(total_chunks):
                     f.write((save_dir / str(file_number)).read_bytes())
@@ -345,7 +350,8 @@ def upload():
         if completed:
             file.filename = request.forms.get("filename")
             with open(
-                storage_path / f"{dz_uuid}_{secure_filename(file.filename)}", "wb"
+                storage_path /
+                    f"{dz_uuid}_{secure_filename(file.filename)}", "wb"
             ) as f:
                 for file_number in range(total_chunks):
                     f.write((save_dir / str(file_number)).read_bytes())
@@ -420,8 +426,8 @@ def download(dz_uuid):
                 dek_encryptor = AeadEncryptor(dek_key, "chacha")
 
                 metalen = fromBytes(chunk[:4])
-                metadata = chunk[4 : 4 + metalen]
-                data = chunk[metalen + 8 :]
+                metadata = chunk[4: 4 + metalen]
+                data = chunk[metalen + 8:]
                 plaintext += dek_encryptor.decrypt(
                     data,
                     metadata,
@@ -445,8 +451,8 @@ def download(dz_uuid):
 
         result = file.read_bytes()
         metalen = fromBytes(result[:4])
-        metadata = result[4 : 4 + metalen]
-        data = result[metalen + 8 :]
+        metadata = result[4: 4 + metalen]
+        data = result[metalen + 8:]
         plaintext = dek_encryptor.decrypt(
             data,
             metadata,
@@ -462,7 +468,8 @@ def download(dz_uuid):
     )
 
     t = threading.Thread(
-        target=remove_file, args=(storage_path / str(keyfile).split(".key")[0][45:],)
+        target=remove_file, args=(
+            storage_path / str(keyfile).split(".key")[0][45:],)
     )
     t.start()
     return response
@@ -507,9 +514,10 @@ def list_files():
         if file.is_file():
             result = file.read_bytes()
             metalen = fromBytes(result[:4])
-            metadata = result[4 : 4 + metalen]
+            metadata = result[4: 4 + metalen]
             user_match = re.search(r"user=([^\s,]+)", metadata.decode("utf-8"))
-            group_match = re.search(r"group=([^\s,]+)", metadata.decode("utf-8"))
+            group_match = re.search(
+                r"group=([^\s,]+)", metadata.decode("utf-8"))
             user_value = user_match.group(1)
             group_value = group_match.group(1)
             if user_value == user:
@@ -538,7 +546,8 @@ def list_files():
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("-m", "--mode", type=str, default="sse", required=False)
+    parser.add_argument("-m", "--mode", type=str,
+                        default="sse", required=False)
     parser.add_argument(
         "-s", "--storage", type=str, default=str(storage_path), required=False
     )
@@ -574,6 +583,8 @@ def parse_args():
     return parser.parse_args()
 
 # Delete all temporary files. Is called automatically when the sever is terminated
+
+
 def delete_files(signum, frame):
     directory = storage_path
     for filename in os.listdir(directory):
@@ -638,16 +649,13 @@ Chunk Path: {chunk_path.absolute()}
     server.ssl_adapter = BuiltinSSLAdapter(
         certificate="adhoc.crt", private_key="adhoc.key"
     )
-    if mode == "sse":
+    other_mode = "sse" if mode == "cse" else "cse"
+    print(
+        f"Server started on https://localhost/ in {mode.upper()} mode. You can change to {other_mode.upper()} mode by adding -m {other_mode} to the command line"
+    )
+    if mode == "cse":
         print(
-            "Server SSE started on https://localhost/. You can change to CSE mode by adding -m cse to the command line"
-        )
-    else:
-        print(
-            "Server CSE started on https://localhost/. You can change to SSE mode by adding -m sse to the command line"
-        )
-        print(
-            "You do not need to do anything more here. Launch client.py with the desired mode"
+            "Web interface is disabled in client-side encryption mode. Launch client.py with the desired mode"
         )
 
     signal.signal(signal.SIGINT, delete_files)
