@@ -6,6 +6,7 @@ import re
 import os
 import boto3
 from encryption.AeadEncryptor import AeadEncryptor
+from getpass import getpass
 from encryption.AeEncryptor import AeEncryptor
 from encryption.algorithms import aead_algorithms, encryption_algorithms
 from uuid import uuid4, UUID as TestUUID
@@ -155,12 +156,12 @@ def upload_cse(filename, metadata, host, output, verify, enc_algo):
     master_encryptor = get_encryptor(master_key, "chacha")
     key_nonce, key_encrypyted, key_signature = master_encryptor.encrypt(
         dek_key, b"")
-    password = input("Enter password to protect the key file: ")
-    password2 = input("Enter password again: ")
+    password = getpass("Enter password to protect the key file: ")
+    password2 = getpass("Enter password again: ")
     while password != password2:
         print("Passwords do not match. Try again.")
-        password = input("Enter password to protect the key file: ")
-        password2 = input("Enter password again: ")
+        password = getpass("Enter password to protect the key file: ")
+        password2 = getpass("Enter password again: ")
     password = password.encode("utf-8")
     salt = bcrypt.gensalt()
     hashed = bcrypt.hashpw(password, salt)
@@ -207,7 +208,7 @@ def download_cse(keyfile, host, output, verify, user, groups):
     with open(keyfile) as f:
         keydata = json.loads(f.read())
 
-    password = input("Enter password to decrypt the key file: ")
+    password = getpass("Enter password to decrypt the key file: ")
     password = password.encode("utf-8")
     salt = bytes.fromhex(keydata["salt"])
     hashed = bytes.fromhex(keydata["password"])
@@ -317,7 +318,7 @@ def login(username):
     for user in users:
         if username == user["username"]:
             print("Welcome to the secureCloud login system, " + username + "!")
-            password = input("Please enter your password to login: ")
+            password = getpass("Please enter your password to login: ")
             password = password.encode("utf-8")
             salt = user["salt"]
             hashed = bcrypt.hashpw(password, salt)
