@@ -36,18 +36,22 @@ openssl req -new -x509 -key adhoc.key -out adhoc.crt -days 3650
 ```
 ## STRUCTURE 📁
 
-The project itself is stored in `src` folder. In this folder, we can find:
+The python scripts are stored in `src` folder. In this folder, we can find:
+
+- `client.py`: File with the client's code. This script is used in CSE to send the data to the server.
+- `server.py`: File with the server's code. This script is used in the server to receive the data and process it and it is always running.
+- `register.py`: File with the code to register a new user.
+- `encryption`: Folder with the code to encrypt and decrypt the data.
+
+The rest of the structure of the project can be found in `server`. This folder contains the info managed by the server. In this folder, we can find:
 - `adhoc.crt`: Certificate file.
 - `adhoc.key`: Private key file.
 - `credentials.json`: File with the credentials to access AWS.
 - `users.pkl`: File with the users' information (it is generated after a user is created and registered).
-- `client.py`: File with the client's code. This script is used in CSE to send the data to the server.
-- `server.py`: File with the server's code. This script is used in the server to receive the data and process it and it is always running.
-- `register.py`: File with the code to register a new user.
 - `chunk`: Folder with the temporary chunks of the data uploaded to the server.
 - `storage`: Folder with the encrypted data uploaded to the server (encrypted by the client in CSE and by the server in SSE). In the case of SSE, it also stores the encrypted DEK needed to decrypt the data divided in chunks.
-- `encryption`: Folder with the code to encrypt and decrypt the data.
 - `keys`: Folder with the master keys used to encrypt the DEKs in SSE and CSE.
+
 
 ## APPLICATION 🌐
 
@@ -70,7 +74,8 @@ The next step is to register a new user to use the client.
 ```python
 python register.py
 ```
-The script will ask you for your username, password and groups to which you want to belong. Then, it will generate a new user and store it in `users.pkl` file.
+
+The script will ask you for your username and password and it will make a request to the server to create yout specified user. The information of all users is stored in `users.pkl` file.
 
 #### Client script
 
@@ -81,7 +86,7 @@ Then, you can launch the client script. The client script is a single use file t
 To upload a file to the server, you can use the following command:
 
 ```python
-python client.py u <file> -u <username> -s -m <user_defined_metadata> -e <encryption_mode>
+python client.py u <file> -s -m <user_defined_metadata> -e <encryption_mode>
 ```
 
 You can find more information about the options running help:
@@ -94,7 +99,7 @@ In the upload process, the script will ask you for your login credentials. Then,
 To download a file from the server, you need to be the user that has uploaded the file, or belong to the same group. You also need the previous key file generated. You can use the following command:
 
 ```python
-python client.py d <keyfile> -u <username> -s -o <output_file>
+python client.py d <keyfile> -s -o <output_file>
 ```	
 
 You do not need to specify group nor encryption mode in the download process, since the server will use the information stored in the key file and the metadata to decrypt the file.
@@ -104,7 +109,7 @@ You do not need to specify group nor encryption mode in the download process, si
 You can list all the files uploaded to the server using the following command:
 
 ```python
-python client.py l -u <username> -s
+python client.py l -s
 ```
 
 #### Removing a file
@@ -112,20 +117,10 @@ python client.py l -u <username> -s
 You can remove a file from the server using the following command:
 
 ```python
-python client.py r <keyfile>/<uuid> -u <username> -s
+python client.py r <keyfile>/<uuid> -s
 ```
 
 It will ask you for your login credentials. Then, it will remove the file from the server in a secure way.
-
-#### Using the shared folder feature
-
-You can use the shared folder feature to share files with other users. To do that, you need to upload a file to the server and then share it with other users. You can use the following command:
-
-```python
-python client.py u <file> -u <username> -s -m <user_defined_metadata> -e <encryption_mode> -f <shared_folder>
-```
-
-If the shared folder is new, the client will ask you to insert the users that will be able to access the folder. If the shared folder already exists, it will upload the file to the existing folder. You can download, list and remove the files from the shared folder as you were the owner of the file.
 
 ### SSE
 
