@@ -1,40 +1,25 @@
-import bcrypt
-import pickle
 from getpass import getpass
 
-users = []
+import requests
+import urllib3
 
-try:
-    with open('users.pkl', 'rb') as f:
-        try:
-            users = pickle.load(f)
-        except EOFError:
-            pass
-except FileNotFoundError:
-    pass
+# Disable SSL verification warnings
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-input ("Welcome to the registration page. Press enter to continue.")
+input("Welcome to the registration page. Press enter to continue.")
 username = input("Please enter a username: ")
-
-for user in users:
-    if username == user['username']:
-        print("Username already taken. Please try again.")
-        exit()
 
 password = getpass("Please enter a password: ")
 password2 = getpass("Please enter your password again: ")
 
-if password != password2:
+while password != password2:
     print("Passwords do not match. Please try again.")
-    exit()
+    password = getpass("Please enter a password: ")
+    password2 = getpass("Please enter your password again: ")
 
-password = password.encode('utf-8')
-salt = bcrypt.gensalt()
-hashed = bcrypt.hashpw(password, salt)
-
-users.append({'username': username, 'password': hashed, 'salt': salt, 'groups': []})
-
-with open('users.pkl', 'wb') as f:
-    pickle.dump(users, f)
-
-print("Registration successful for user " + username)
+request = requests.post(
+    f"https://localhost/register",
+    data={"username": username, "password": password},
+    verify=False,
+)
+print(request.text)

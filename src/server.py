@@ -1,26 +1,29 @@
+import argparse
+import json
+import os
+import pickle
+import re
+import shutil
+import signal
+import threading
+import time
+from collections import defaultdict
 from pathlib import Path
 from threading import Lock
-from collections import defaultdict
-import shutil
-import argparse
-from cheroot.wsgi import Server as WSGIServer
-from cheroot.ssl.builtin import BuiltinSSLAdapter
-import signal
-import os
-import json
-import boto3
-import time
-from encryption.AeadEncryptor import AeadEncryptor
-import threading
-import re
 
-from bottle import Bottle, request, response, HTTPError, static_file, redirect
+import bcrypt
+import boto3
+from bottle import Bottle, HTTPError, redirect, request, response, static_file
+from cheroot.ssl.builtin import BuiltinSSLAdapter
+from cheroot.wsgi import Server as WSGIServer
 from werkzeug.utils import secure_filename
 
-from encryption.key_management import create_or_reuse_master_key, generate_key, search_master_key
+from encryption.AeadEncryptor import AeadEncryptor
+from encryption.key_management import (create_or_reuse_master_key,
+                                       generate_key, search_master_key)
 
-storage_path: Path = Path(__file__).parent / "storage"
-chunk_path: Path = Path(__file__).parent / "chunk"
+storage_path: Path = Path(__file__).resolve().parent.parent / "server" / "storage"
+chunk_path: Path = Path(__file__).resolve().parent.parent / "server" / "chunk"
 
 allow_downloads = True
 dropzone_cdn = "https://cdnjs.cloudflare.com/ajax/libs/dropzone"
@@ -37,7 +40,7 @@ chuncks = defaultdict(list)
 app = Bottle()
 
 # We read de credentials file
-with open("credentials.json") as cred_file:
+with open('../server/credentials.json') as cred_file:
     cred = json.load(cred_file)
 
 # Create the kms client
@@ -169,6 +172,59 @@ def index():
 </body>
 </html>
     """
+
+@app.route("/register", method="POST")
+def register():
+    users = []
+    username = request.forms.get("username")
+    password = request.forms.get("password")
+
+    try:
+        with open('../server/users.pkl', 'rb') as f:
+            try:
+                users = pickle.load(f)
+            except EOFError:
+                pass
+    except FileNotFoundError:
+        pass
+
+    for user in users:
+        if username == user['username']:
+            return(f"Username already taken. Please try again.")
+        
+    password = password.encode('utf-8')
+    salt = bcrypt.gensalt()
+    hashed = bcrypt.hashpw(password, salt)
+
+    users.append({'username': username, 'password': hashed, 'salt': salt})
+
+    with open('../server/users.pkl', 'wb') as f:
+        pickle.dump(users, f)
+    
+    return(f"User {username} successfully registered.")
+
+@app.route("/login", method="POST")
+def login():
+    users = []
+    username = request.forms.get("username")
+    password = request.forms.get("password")
+
+    try:
+        with open('../server/users.pkl', 'rb') as f:
+            try:
+                users = pickle.load(f)
+            except EOFError:
+                pass
+    except FileNotFoundError:
+        pass
+
+    for user in users:
+        if username == user['username']:
+            if bcrypt.checkpw(password.encode('utf-8'), user['password']):
+                return(f"User {username} successfully logged in.")
+            else:
+                return HTTPError(status=401)
+    return HTTPError(status=404)
 
 
 def find_uploaded_file(dz_uuid):
@@ -322,7 +378,7 @@ def read_file_in_chunks(filename, chunk_size):
 @app.route("/download/<dz_uuid>")
 def download(dz_uuid):
     if not allow_downloads:
-        raise HTTPError(status=403)
+        return HTTPError(status=403)
 
     if not storage_path.exists():
         storage_path.mkdir(exist_ok=True, parents=True)
@@ -444,45 +500,27 @@ def delete(dz_uuid):
 
 @app.route("/list", method="POST")
 def list_files():
-    self_files = []
-    shared_files = []
+    files = []
     user = request.POST.get("user")
-    group_post = request.POST.get("groups", "")
-    groups = []
-    for g in group_post.split(","):
-        groups.append(g)
     for file in storage_path.iterdir():
         if file.is_file():
             result = file.read_bytes()
             metalen = fromBytes(result[:4])
             metadata = result[4: 4 + metalen]
             user_match = re.search(r"user=([^\s,]+)", metadata.decode("utf-8"))
-            group_match = re.search(
-                r"group=([^\s,]+)", metadata.decode("utf-8"))
             user_value = user_match.group(1)
-            group_value = group_match.group(1)
             if user_value == user:
-                self_files.append(
+                files.append(
                     {
                         "name": file.name[37:],
                         "uuid": file.name[:36],
                         "size": str(file.stat().st_size) + " bytes",
                         "owner": user_value,
-                        "group": group_value,
                     }
                 )
-            elif group_value in groups:
-                shared_files.append(
-                    {
-                        "name": file.name[37:],
-                        "uuid": file.name[:36],
-                        "size": str(file.stat().st_size) + " bytes",
-                        "owner": user_value,
-                        "group": group_value,
-                    }
-                )
+            
     response.content_type = "application/json"
-    return "{'self-owned': " + json.dumps(self_files) + ", 'shared-folders': " + json.dumps(shared_files) + "}"
+    return json.dumps(files)
 
 
 def parse_args():
@@ -588,7 +626,7 @@ Chunk Path: {chunk_path.absolute()}
     )
     server = WSGIServer(("localhost", 443), app)
     server.ssl_adapter = BuiltinSSLAdapter(
-        certificate="adhoc.crt", private_key="adhoc.key"
+        certificate="../server/adhoc.crt", private_key="../server/adhoc.key"
     )
     other_mode = "sse" if mode == "cse" else "cse"
     print(

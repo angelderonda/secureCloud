@@ -1,10 +1,11 @@
 import json
 import os
 import re
+from pathlib import Path
 
 def create_or_reuse_master_key():
     # Define the directory containing the key files
-    key_dir = "keys/"
+    key_dir = Path(__file__).resolve().parent.parent.parent / "server" / "keys"
 
     # Find the file with the highest numeric suffix
     key_pattern = re.compile(r"key(\d+)\.json")
@@ -48,9 +49,9 @@ def create_or_reuse_master_key():
 
 
 def search_master_key(id):
-    key_file = os.path.join("keys/", f"key{id}.json")
+    key_dir = Path(__file__).resolve().parent.parent.parent / "server" / "keys"
     # Load the contents of the file
-    with open(key_file, "r") as f:
+    with open(os.path.join(key_dir,f"key{id}.json"), "r") as f:
         master_key_data = json.load(f)
     master_key = bytes(master_key_data["master_key"])
     return master_key
