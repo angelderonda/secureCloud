@@ -456,24 +456,25 @@ def download(dz_uuid):
             bytes.fromhex(keydata["nonce_dek"]),
             bytes.fromhex(keydata["signature_dek"]),
         )
-    with open(storage_path / str(keyfile)[8:].split(".key")[0][45:], "wb") as f:
+    filename = keyfile.with_suffix("").name[37:]
+    with open(keyfile.with_name(filename), "wb") as f:
         f.write(plaintext)
     response = static_file(
-        str(keyfile)[8:].split(".key")[0][45:],
+        keyfile.with_name(filename).name,
         root=storage_path,
         download=True,
     )
 
     t = threading.Thread(
-        target=remove_file, args=(
-            storage_path / str(keyfile)[8:].split(".key")[0][45:],)
+        target=remove_file, args=(keyfile.with_name(filename),)
     )
-    #t.start()
+    t.start()
     return response
 
 
 def remove_file(file):
     time.sleep(2)
+    print("Removing file", file)
     os.remove(file)
 
 
@@ -529,8 +530,7 @@ def list_files():
                         {
                             "name": file.name[37:],
                             "uuid": file.name[:36],
-                            "size": str(file.stat().st_size) + " bytes",
-                            "owner": user_value,
+                            "size": str(file.stat().st_size) + " bytes"
                         }
                     )
             

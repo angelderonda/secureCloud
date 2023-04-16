@@ -138,7 +138,7 @@ def upload_cse(filename, metadata, host, output, verify, enc_algo):
 
 
 def list_files(host, verify, user):
-    result = requests.post(
+    result = requests.get(
         f"{host}/list",
         data={"user": user},
         verify=verify,
@@ -235,8 +235,24 @@ def delete(file, host, verify):
         uuid = str(TestUUID(file, version=4))
     except ValueError:
         try:
-            with open(file) as f:
-                keydata = json.loads(f.read())
+            with open(file, 'rb') as f:
+                salt = f.read(16)
+                password = getpass("Enter password to decrypt the key file: ")
+                encrypted = f.read()
+                kdf = PBKDF2HMAC(
+                    algorithm=hashes.SHA256(),
+                    length=32,
+                    salt=salt,
+                    iterations=100000,
+                )
+                key = kdf.derive(password.encode())
+                try:
+                    fernet = Fernet(base64.urlsafe_b64encode(key))
+                    data = fernet.decrypt(encrypted)
+                except InvalidToken:
+                    print("Error: wrong password")
+                    sys.exit(1)
+                keydata = json.loads(data)
                 uuid = keydata["uuid"]
         except:
             print(
