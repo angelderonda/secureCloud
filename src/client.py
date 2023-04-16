@@ -1,4 +1,5 @@
 import argparse
+import base64
 import datetime
 import json
 import os
@@ -8,19 +9,18 @@ from getpass import getpass
 from uuid import UUID as TestUUID
 from uuid import uuid4
 
-import bcrypt
 import boto3
 import requests
 import urllib3
+from cryptography.fernet import Fernet, InvalidToken
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
 from encryption.AeadEncryptor import AeadEncryptor
 from encryption.AeEncryptor import AeEncryptor
 from encryption.algorithms import aead_algorithms, encryption_algorithms
-from encryption.key_management import (
-    create_or_reuse_master_key,
-    generate_key,
-    search_master_key,
-)
+from encryption.key_management import (create_or_reuse_master_key,
+                                       generate_key, search_master_key)
 
 # Disable SSL verification warnings
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -104,28 +104,36 @@ def upload_cse(filename, metadata, host, output, verify, enc_algo):
         print("Passwords do not match. Try again.")
         password = getpass("Enter password to protect the key file: ")
         password2 = getpass("Enter password again: ")
-    password = password.encode("utf-8")
-    salt = bcrypt.gensalt()
-    hashed = bcrypt.hashpw(password, salt)
 
-    with open(output if output else filename + ".key", "w+") as f:
-        f.write(
-            json.dumps(
-                {
-                    "nonce_dek": nonce_dek.hex(),
-                    "signature_dek": signature_dek.hex(),
-                    "nonce_key": key_nonce.hex(),
-                    "signature_key": key_signature.hex(),
-                    "key": key_encrypyted.hex(),
-                    "key_id": key_id,
-                    "uuid": fileid,
-                    "enc_algo": enc_algo,
-                    "password": hashed.hex(),
-                    "salt": salt.hex(),
-                }
-            )
+    # Generate a salt and derive a key from the password using PBKDF2
+    salt = os.urandom(16)  # Generate a random salt
+    kdf = PBKDF2HMAC(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=salt,
+        iterations=100000,
+    )
+    key = kdf.derive(password.encode())
+
+    # Use the key to encrypt a file
+    fernet = Fernet(base64.urlsafe_b64encode(key))
+
+    with open(output if output else filename + ".key", "wb") as f:
+        data = json.dumps(
+            {
+                "nonce_dek": nonce_dek.hex(),
+                "signature_dek": signature_dek.hex(),
+                "nonce_key": key_nonce.hex(),
+                "signature_key": key_signature.hex(),
+                "key": key_encrypyted.hex(),
+                "key_id": key_id,
+                "uuid": fileid,
+                "enc_algo": enc_algo,
+            }
         )
-    
+        f.write(salt)
+        f.write(fernet.encrypt(data.encode()))
+
     print(f"Key file saved to {output if output else filename + '.key'}")
 
 
@@ -146,16 +154,25 @@ def download_cse(keyfile, host, output, verify, user):
             "Error opening key file. Does it exist locally and do you have permissions to open it?"
         )
         sys.exit(1)
-    with open(keyfile) as f:
-        keydata = json.loads(f.read())
+    with open(keyfile, 'rb') as f:
+        salt = f.read(16)
+        password = getpass("Enter password to decrypt the key file: ")
+        encrypted = f.read()
+        kdf = PBKDF2HMAC(
+            algorithm=hashes.SHA256(),
+            length=32,
+            salt=salt,
+            iterations=100000,
+        )
+        key = kdf.derive(password.encode())
+        try:
+            fernet = Fernet(base64.urlsafe_b64encode(key))
+            data = fernet.decrypt(encrypted)
+        except InvalidToken:
+            print("Error: wrong password")
+            sys.exit(1)
+        keydata = json.loads(data) 
 
-    password = getpass("Enter password to decrypt the key file: ")
-    password = password.encode("utf-8")
-    salt = bytes.fromhex(keydata["salt"])
-    hashed = bytes.fromhex(keydata["password"])
-    if hashed != bcrypt.hashpw(password, salt):
-        print("Wrong password")
-        sys.exit(1)
     master_key = search_master_key(keydata["key_id"])
     master_encryptor = get_encryptor(master_key, "chacha")
     dek_key = master_encryptor.decrypt(
@@ -317,7 +334,7 @@ The client offers a few different modes that treat the FILE argument differently
     if args.MODE == "l" or args.MODE == "list":
         list_files(args.host, not args.skip_verify, username)
         sys.exit(0)
-    if not 'FILE' in args:
+    if not "FILE" in args:
         print("ERROR: File must be specified if operation is not list or l")
         sys.exit(1)
 
