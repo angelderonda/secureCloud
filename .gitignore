@@ -20,7 +20,7 @@ docs/_build/
 credentials.json
 securecloud_accessKeys.csv
 *.crt
-*.key
+*.key   
 instance/
 
 
