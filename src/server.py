@@ -456,19 +456,19 @@ def download(dz_uuid):
             bytes.fromhex(keydata["nonce_dek"]),
             bytes.fromhex(keydata["signature_dek"]),
         )
-    with open(storage_path / str(keyfile).split(".key")[0][45:], "wb") as f:
+    with open(storage_path / str(keyfile)[8:].split(".key")[0][45:], "wb") as f:
         f.write(plaintext)
     response = static_file(
-        str(keyfile).split(".key")[0][45:],
+        str(keyfile)[8:].split(".key")[0][45:],
         root=storage_path,
         download=True,
     )
 
     t = threading.Thread(
         target=remove_file, args=(
-            storage_path / str(keyfile).split(".key")[0][45:],)
+            storage_path / str(keyfile)[8:].split(".key")[0][45:],)
     )
-    t.start()
+    #t.start()
     return response
 
 
@@ -497,31 +497,46 @@ def delete(dz_uuid):
         print(f"Deleted file securely")
         return redirect("/")
 
-
-@app.route("/list", method="POST")
+@app.route("/list", methods=["GET", "POST"])
 def list_files():
-    files = []
-    user = request.POST.get("user")
-    for file in storage_path.iterdir():
-        if file.is_file():
-            result = file.read_bytes()
-            metalen = fromBytes(result[:4])
-            metadata = result[4: 4 + metalen]
-            print(metadata)
-            user_match = re.search(r"user=([^\s,]+)", metadata.decode("utf-8"))
-            user_value = user_match.group(1)
-            if user_value == user:
+    if request.method == "GET":
+        files = []
+        for file in storage_path.iterdir():
+            if file.is_file():
                 files.append(
                     {
                         "name": file.name[37:],
                         "uuid": file.name[:36],
-                        "size": str(file.stat().st_size) + " bytes",
-                        "owner": user_value,
+                        "size": file.stat().st_size,
                     }
                 )
+        response.content_type = "application/json"
+        return json.dumps(files)
+        
+    elif request.method == "POST":
+        files = []
+        user = request.POST.get("user")
+        for file in storage_path.iterdir():
+            if file.is_file():
+                result = file.read_bytes()
+                metalen = fromBytes(result[:4])
+                metadata = result[4: 4 + metalen]
+                print(metadata)
+                user_match = re.search(r"user=([^\s,]+)", metadata.decode("utf-8"))
+                user_value = user_match.group(1)
+                if user_value == user:
+                    files.append(
+                        {
+                            "name": file.name[37:],
+                            "uuid": file.name[:36],
+                            "size": str(file.stat().st_size) + " bytes",
+                            "owner": user_value,
+                        }
+                    )
             
-    response.content_type = "application/json"
-    return json.dumps(files)
+        response.content_type = "application/json"
+        return json.dumps(files)
+
 
 
 def parse_args():
