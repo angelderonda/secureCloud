@@ -39,7 +39,7 @@ lock = Lock()
 chuncks = defaultdict(list)
 app = Bottle()
 
-# We read de credentials file
+# We read the credentials file
 with open('../server/credentials.json') as cred_file:
     cred = json.load(cred_file)
 
@@ -507,6 +507,7 @@ def list_files():
             result = file.read_bytes()
             metalen = fromBytes(result[:4])
             metadata = result[4: 4 + metalen]
+            print(metadata)
             user_match = re.search(r"user=([^\s,]+)", metadata.decode("utf-8"))
             user_value = user_match.group(1)
             if user_value == user:

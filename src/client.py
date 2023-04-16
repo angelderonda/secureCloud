@@ -25,7 +25,7 @@ from encryption.key_management import (
 # Disable SSL verification warnings
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# We read de credentials file
+# We read the credentials file
 with open("../server/credentials.json") as cred_file:
     cred = json.load(cred_file)
 
@@ -135,9 +135,7 @@ def list_files(host, verify, user):
         data={"user": user},
         verify=verify,
     )
-    print("User info:")
-    print("username: " + user)
-    print("Files:")
+    print(f"Found the following files for user {user}:")
     json_obj = json.loads(result.text)
     print(json.dumps(json_obj, indent=4))
 
@@ -275,7 +273,8 @@ The client offers a few different modes that treat the FILE argument differently
     )
     parser.add_argument(
         "FILE",
-        help="What file to operate on. Is a local filename in case of upload, file ID otherwise",
+        nargs="?",
+        help="What file to operate on. Is a local filename in case of upload, file ID otherwise. Can be omitted when using list",
     )
     parser.add_argument(
         "-e",
@@ -315,6 +314,13 @@ The client offers a few different modes that treat the FILE argument differently
     if args.skip_verify:
         print("WARNING: Skipping TLS certificate verification. USE ONLY FOR TESTING!")
 
+    if args.MODE == "l" or args.MODE == "list":
+        list_files(args.host, not args.skip_verify, username)
+        sys.exit(0)
+    if not 'FILE' in args:
+        print("ERROR: File must be specified if operation is not list or l")
+        sys.exit(1)
+
     if args.MODE == "u" or args.MODE == "upload":
         args.metadata = (
             "user="
@@ -337,10 +343,8 @@ The client offers a few different modes that treat the FILE argument differently
         )
     elif args.MODE == "d" or args.MODE == "download":
         download_cse(args.FILE, args.host, args.output, not args.skip_verify, username)
-    elif args.MODE == "r":
+    elif args.MODE == "r" or args.MODE == "delete" or args.MODE == "remove":
         delete(args.FILE, args.host, not args.skip_verify)
-    elif args.MODE == "l":
-        list_files(args.host, not args.skip_verify, username)
     else:
         raise NotImplementedError()
 
